@@ -1,116 +1,204 @@
-datatype Size = Small | Medium | Large
-
-predicate Fits(item: Size, locker: Size)
-{
-  match item
-  case Small  => true
-  case Medium => locker == Medium || locker == Large
-  case Large  => locker == Large
-}
-
-lemma FitsReflexive(s: Size)
-  ensures Fits(s, s)
-{}
+datatype PowerState = MainPower | BackupPower
 
 class Locker {
-  var occupied: bool
-  var parcelId: int
-  var receiverId: int
-  const size: Size
+  var doorOpen: bool
+  var locked: bool
+  const widthCm: nat
+  const heightCm: nat
+  const depthCm: nat
 
   ghost predicate Valid()
     reads this
   {
-    (occupied  ==> parcelId > 0 && receiverId > 0) &&
-    (!occupied ==> parcelId == -1 && receiverId == -1)
+    doorOpen ==> !locked
   }
 
-  constructor(s: Size)
-    ensures size == s
-    ensures !occupied
-    ensures parcelId == -1
-    ensures receiverId == -1
+  constructor (w: nat, h: nat, d: nat)
+    ensures widthCm == w && heightCm == h && depthCm == d
+    ensures !doorOpen && locked
     ensures Valid()
   {
-    size := s;
-    occupied := false;
-    parcelId := -1;
-    receiverId := -1;
+    widthCm := w;
+    heightCm := h;
+    depthCm := d;
+    doorOpen := false;
+    locked := true;
   }
 
-  method PlaceParcel(id: int, receiver: int, parcelSize: Size)
-    requires Valid()
-    requires !occupied
-    requires id > 0
-    requires receiver > 0
-    requires Fits(parcelSize, size)
+  function Fits(w: nat, h: nat, d: nat): bool
+    reads this
+  {
+    w <= widthCm && h <= heightCm && d <= depthCm
+  }
+
+  method Unlock()
+    requires Valid() && locked
     modifies this
-    ensures occupied
-    ensures parcelId == id
-    ensures receiverId == receiver
+    ensures !locked && doorOpen == old(doorOpen)
     ensures Valid()
   {
-    occupied := true;
-    parcelId := id;
-    receiverId := receiver;
+    locked := false;
   }
 
-  method RemoveParcel(userId: int, isCourier: bool)
-    requires Valid()
-    requires occupied
-    requires userId == receiverId || isCourier
+  method Lock()
+    requires Valid() && !locked && !doorOpen
     modifies this
-    ensures !occupied
-    ensures parcelId == -1
-    ensures receiverId == -1
+    ensures locked && !doorOpen
     ensures Valid()
   {
-    occupied := false;
-    parcelId := -1;
-    receiverId := -1;
+    locked := true;
+  }
+
+  method OpenDoor()
+    requires Valid() && !locked && !doorOpen
+    modifies this
+    ensures doorOpen && !locked
+    ensures Valid()
+  {
+    doorOpen := true;
+  }
+
+  method CloseDoor()
+    requires Valid() && doorOpen
+    modifies this
+    ensures !doorOpen && locked == old(locked)
+    ensures Valid()
+  {
+    doorOpen := false;
   }
 }
 
 class ParcelLocker {
-  var lockers: array<Locker>
+  const lockers: seq<Locker>
+  var power: PowerState
+  var poweredOn: bool
 
   ghost predicate Valid()
-    reads this, lockers,
-          set i | 0 <= i < lockers.Length :: lockers[i]
+    reads this, set c | c in lockers
   {
-    lockers.Length > 0 &&
-
-    (forall i :: 0 <= i < lockers.Length ==>
-      lockers[i].Valid()) &&
-
-    forall i, j :: 0 <= i < j < lockers.Length &&
-                   lockers[i].occupied &&
-                   lockers[j].occupied
-                ==> lockers[i].parcelId != lockers[j].parcelId
+    forall i :: 0 <= i < |lockers| ==> lockers[i].Valid()
   }
 
-  ghost predicate HasFreeForSize(s: Size)
-    requires Valid()
-    reads this, lockers,
-          set i | 0 <= i < lockers.Length :: lockers[i]
+  constructor (obj: seq<Locker>)
+    requires forall i :: 0 <= i < |obj| ==> obj[i].Valid()
+    ensures lockers == obj
+    ensures power == MainPower && poweredOn
+    ensures Valid()
   {
-    exists i :: 0 <= i < lockers.Length &&
-                !lockers[i].occupied &&
-                Fits(s, lockers[i].size)
+    lockers := obj;
+    power := MainPower;
+    poweredOn := true;
   }
 
-  ghost predicate AllOccupied()
-    requires Valid()
-    reads this, lockers,
-          set i | 0 <= i < lockers.Length :: lockers[i]
+  method SwitchToBackup()
+    requires poweredOn && power == MainPower
+    modifies this
+    ensures poweredOn && power == BackupPower
   {
-    forall i :: 0 <= i < lockers.Length ==>
-                lockers[i].occupied
+    power := BackupPower;
   }
 
-  lemma AllOccupiedForAnySize()
+  method SwitchToMain()
+    requires poweredOn && power == BackupPower
+    modifies this
+    ensures poweredOn && power == MainPower
+  {
+    power := MainPower;
+  }
+
+  method PowerOff()
+    requires poweredOn
+    modifies this
+    ensures !poweredOn
+    ensures power == old(power)
+  {
+    poweredOn := false;
+  }
+
+  method PowerOn()
+    requires !poweredOn
+    modifies this
+    ensures poweredOn
+    ensures power == old(power)
+  {
+    poweredOn := true;
+  }
+
+  method UnlockLocker(i: int)
     requires Valid()
-    requires AllOccupied()
-    ensures forall s: Size :: !HasFreeForSize(s)
-  {}
+    requires 0 <= i < |lockers|
+    requires poweredOn
+    requires lockers[i].locked
+    modifies lockers[i]
+    ensures !lockers[i].locked
+    ensures lockers[i].doorOpen == old(lockers[i].doorOpen)
+    ensures Valid()
+  {
+    lockers[i].Unlock();
+  }
+
+  method LockLocker(i: int)
+    requires Valid()
+    requires 0 <= i < |lockers|
+    requires poweredOn
+    requires !lockers[i].locked && !lockers[i].doorOpen
+    modifies lockers[i]
+    ensures lockers[i].locked && !lockers[i].doorOpen
+    ensures Valid()
+  {
+    lockers[i].Lock();
+  }
+
+  method OpenLockerDoor(i: int)
+    requires Valid()
+    requires 0 <= i < |lockers|
+    requires !lockers[i].locked && !lockers[i].doorOpen
+    modifies lockers[i]
+    ensures lockers[i].doorOpen && !lockers[i].locked
+    ensures Valid()
+  {
+    lockers[i].OpenDoor();
+  }
+
+  method CloseLockerDoor(i: int)
+    requires Valid()
+    requires 0 <= i < |lockers|
+    requires lockers[i].doorOpen
+    modifies lockers[i]
+    ensures !lockers[i].doorOpen
+    ensures lockers[i].locked == old(lockers[i].locked)
+    ensures Valid()
+  {
+    lockers[i].CloseDoor();
+  }
+}
+
+method Main()
+{
+  var l0 := new Locker(40, 30, 50);
+  var l1 := new Locker(60, 40, 60);
+  var l2 := new Locker(20, 20, 30);
+
+  assert l0.Fits(30, 20, 40);
+  assert !l2.Fits(50, 50, 50);
+
+  var locker := new ParcelLocker([l0, l1, l2]);
+
+  locker.SwitchToBackup();
+  locker.SwitchToMain();
+
+  locker.UnlockLocker(0);
+  locker.OpenLockerDoor(0);
+  locker.CloseLockerDoor(0);
+  locker.LockLocker(0);
+
+  locker.PowerOff();
+  locker.PowerOn();
+
+  locker.UnlockLocker(1);
+  locker.OpenLockerDoor(1);
+  locker.CloseLockerDoor(1);
+  locker.LockLocker(1);
+
+  print "ParcelLocker successfully executed";
 }
