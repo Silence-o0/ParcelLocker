@@ -32,9 +32,9 @@ class Locker {
   }
 
   method Unlock()
-    requires Valid() && locked
+    requires Valid() && locked && !doorOpen
     modifies this
-    ensures !locked && doorOpen == old(doorOpen)
+    ensures !locked && !doorOpen
     ensures Valid()
   {
     locked := false;
@@ -59,9 +59,9 @@ class Locker {
   }
 
   method CloseDoor()
-    requires Valid() && doorOpen
+    requires Valid() && doorOpen && !locked
     modifies this
-    ensures !doorOpen && locked == old(locked)
+    ensures !doorOpen && !locked
     ensures Valid()
   {
     doorOpen := false;
@@ -128,10 +128,9 @@ class ParcelLocker {
     requires Valid()
     requires 0 <= i < |lockers|
     requires poweredOn
-    requires lockers[i].locked
+    requires lockers[i].locked && !lockers[i].doorOpen
     modifies lockers[i]
-    ensures !lockers[i].locked
-    ensures lockers[i].doorOpen == old(lockers[i].doorOpen)
+    ensures !lockers[i].locked && !lockers[i].doorOpen
     ensures Valid()
   {
     lockers[i].Unlock();
@@ -163,10 +162,9 @@ class ParcelLocker {
   method CloseLockerDoor(i: int)
     requires Valid()
     requires 0 <= i < |lockers|
-    requires lockers[i].doorOpen
+    requires lockers[i].doorOpen && !lockers[i].locked
     modifies lockers[i]
-    ensures !lockers[i].doorOpen
-    ensures lockers[i].locked == old(lockers[i].locked)
+    ensures !lockers[i].doorOpen && !lockers[i].locked
     ensures Valid()
   {
     lockers[i].CloseDoor();
@@ -182,23 +180,23 @@ method Main()
   assert l0.Fits(30, 20, 40);
   assert !l2.Fits(50, 50, 50);
 
-  var locker := new ParcelLocker([l0, l1, l2]);
+  var parcellocker := new ParcelLocker([l0, l1, l2]);
 
-  locker.SwitchToBackup();
-  locker.SwitchToMain();
+  parcellocker.SwitchToBackup();
+  parcellocker.SwitchToMain();
 
-  locker.UnlockLocker(0);
-  locker.OpenLockerDoor(0);
-  locker.CloseLockerDoor(0);
-  locker.LockLocker(0);
+  parcellocker.UnlockLocker(0);
+  parcellocker.OpenLockerDoor(0);
+  parcellocker.CloseLockerDoor(0);
+  parcellocker.LockLocker(0);
 
-  locker.PowerOff();
-  locker.PowerOn();
+  parcellocker.PowerOff();
+  parcellocker.PowerOn();
 
-  locker.UnlockLocker(1);
-  locker.OpenLockerDoor(1);
-  locker.CloseLockerDoor(1);
-  locker.LockLocker(1);
+  parcellocker.UnlockLocker(1);
+  parcellocker.OpenLockerDoor(1);
+  parcellocker.CloseLockerDoor(1);
+  parcellocker.LockLocker(1);
 
   print "ParcelLocker successfully executed";
 }
